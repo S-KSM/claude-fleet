@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# claude-fleet-status: Inspect branch commits, dirtiness, and diffs across worktrees
+set -e
+
+BASE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "Error: Must be run inside a Git repository."
+  exit 1
+}
+MAIN_BRANCH="${CLAUDE_FLEET_MAIN_BRANCH:-main}"
+WORKTREE_ROOT="$BASE_DIR/.worktrees"
+
+if [ ! -d "$WORKTREE_ROOT" ]; then
+  echo "No active .worktrees directory found."
+  exit 0
+fi
+
+printf "%-22s | %-12s | %-12s | %-24s\n" "WORKTREE / SLUG" "AHEAD (MAIN)" "UNCOMMITTED" "DIFF SUMMARY"
+echo "----------------------------------------------------------------------------------------"
+
+for dir in "$WORKTREE_ROOT"/*; do
+  [ -d "$dir" ] || continue
+  NAME="$(basename "$dir")"
+
+  AHEAD=$(git -C "$dir" rev-list --count "$MAIN_BRANCH..HEAD" 2>/dev/null || echo "?")
+  DIRTY_COUNT=$(git -C "$dir" status --porcelain | wc -l | tr -d ' ')
+  DIFF=$(git -C "$dir" diff --shortstat "$MAIN_BRANCH..HEAD" 2>/dev/null)
+  [ -z "$DIFF" ] && DIFF="clean"
+
+  printf "%-22s | ahead: %-5s | dirty: %-6s | %-24s\n" "$NAME" "$AHEAD" "$DIRTY_COUNT" "$DIFF"
+done

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# claude-fleet-clean: Terminate tmux session and tear down worktree checkouts
+set -e
+
+BASE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "Error: Must be run inside a Git repository."
+  exit 1
+}
+
+SESSION_NAME="claude-fleet"
+WORKTREE_ROOT="$BASE_DIR/.worktrees"
+
+echo "Active Worktrees:"
+git worktree list
+echo ""
+
+read -r -p "Kill tmux session '$SESSION_NAME' and remove all .worktrees/? (y/N): " CONFIRM
+if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+  tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
+
+  if [ -d "$WORKTREE_ROOT" ]; then
+    for dir in "$WORKTREE_ROOT"/*; do
+      [ -d "$dir" ] || continue
+      git worktree remove --force "$dir" 2>/dev/null || rm -rf "$dir"
+    done
+  fi
+
+  git worktree prune
+  echo "[fleet] All worktrees removed and session stopped."
+else
+  echo "Aborted."
+fi

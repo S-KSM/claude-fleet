@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# claude-fleet-start: Automated batch provisioning from a task manifest
+set -e
+
+BASE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "Error: Must be run inside a Git repository."
+  exit 1
+}
+
+MAIN_BRANCH="${CLAUDE_FLEET_MAIN_BRANCH:-main}"
+
+# 1. Sync main branch
+echo "==> Syncing $MAIN_BRANCH branch..."
+CURRENT_BRANCH="$(git branch --show-current)"
+git checkout "$MAIN_BRANCH"
+git pull --ff-only
+[ "$CURRENT_BRANCH" != "$MAIN_BRANCH" ] && git checkout "$CURRENT_BRANCH"
+
+WORKTREE_ROOT="$BASE_DIR/.worktrees"
+GITIGNORE_FILE="$BASE_DIR/.gitignore"
+
+[ ! -f "$GITIGNORE_FILE" ] && touch "$GITIGNORE_FILE"
+if ! grep -qxF ".worktrees/" "$GITIGNORE_FILE"; then
+  echo "" >> "$GITIGNORE_FILE"
+  echo "# Claude Code fleet worktrees" >> "$GITIGNORE_FILE"
+  echo ".worktrees/" >> "$GITIGNORE_FILE"
+fi
+mkdir -p "$WORKTREE_ROOT"
+
+SESSION_NAME="claude-fleet"
+
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+  echo "Error: tmux session '$SESSION_NAME' already exists. Attach with 'tmux attach -t $SESSION_NAME' or run claude-fleet-clean first."
+  exit 1
+fi
+
+# 2. Dependency bootstrapper
+bootstrap_deps() {
+  local target_dir="$1"
+  if [ -f "$target_dir/pnpm-lock.yaml" ]; then
+    (cd "$target_dir" && pnpm install --frozen-lockfile) || (cd "$target_dir" && pnpm install) || true
+  elif [ -f "$target_dir/package.json" ]; then
+    (cd "$target_dir" && npm install) || true
+  elif [ -f "$target_dir/poetry.lock" ]; then
+    (cd "$target_dir" && poetry install --sync) || true
+  elif [ -f "$target_dir/requirements.txt" ]; then
+    (cd "$target_dir" && pip install -r requirements.txt) || true
+  fi
+}
+
+TASK_FILE="${1:-tasks.txt}"
+if [ ! -f "$TASK_FILE" ]; then
+  echo "Error: No task file found at '$TASK_FILE'."
+  echo "Format per line: slug | Initial prompt for Claude"
+  exit 1
+fi
+
+FIRST=true
+while IFS="|" read -r RAW_SLUG PROMPT || [ -n "$RAW_SLUG" ]; do
+  # Strip leading/trailing whitespace from the slug field
+  RAW_SLUG="$(echo "$RAW_SLUG" | sed 's/^[ \t]*//;s/[ \t]*$//')"
+  [[ "$RAW_SLUG" =~ ^#.*$ ]] && continue
+  [ -z "$RAW_SLUG" ] && continue
+
+  SLUG=$(echo "$RAW_SLUG" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-_')
+  PROMPT=$(echo "$PROMPT" | sed 's/^[ \t]*//;s/[ \t]*$//')
+  TREE_DIR="$WORKTREE_ROOT/$SLUG"
+
+  echo "==> Provisioning workspace: $SLUG"
+  if [ ! -d "$TREE_DIR" ]; then
+    git worktree add "$TREE_DIR" -b "agent/$SLUG"
+    [ -f "$BASE_DIR/.env" ] && cp "$BASE_DIR/.env" "$TREE_DIR/.env"
+    bootstrap_deps "$TREE_DIR"
+  fi
+
+  if [ "$FIRST" = true ]; then
+    tmux new-session -d -s "$SESSION_NAME" -c "$TREE_DIR"
+    FIRST=false
+  else
+    tmux split-window -t "$SESSION_NAME" -c "$TREE_DIR"
+  fi
+
+  if [ -n "$PROMPT" ]; then
+    tmux send-keys -t "$SESSION_NAME" "claude" C-m
+    tmux send-keys -t "$SESSION_NAME" "$PROMPT" C-m
+  else
+    tmux send-keys -t "$SESSION_NAME" "claude" C-m
+  fi
+done < "$TASK_FILE"
+
+if [ "$FIRST" = true ]; then
+  echo "Error: no valid tasks found in '$TASK_FILE'."
+  exit 1
+fi
+
+tmux select-layout -t "$SESSION_NAME" tiled
+echo "==> Fleet running in background. Connect with: tmux attach -t claude-fleet"

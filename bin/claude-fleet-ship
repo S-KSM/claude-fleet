@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# claude-fleet-ship: Push active branches and open GitHub Draft PRs
+set -e
+
+BASE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "Error: Must be run inside a Git repository."
+  exit 1
+}
+MAIN_BRANCH="${CLAUDE_FLEET_MAIN_BRANCH:-main}"
+WORKTREE_ROOT="$BASE_DIR/.worktrees"
+
+if [ ! -d "$WORKTREE_ROOT" ]; then
+  echo "No active .worktrees directory found."
+  exit 0
+fi
+
+for dir in "$WORKTREE_ROOT"/*; do
+  [ -d "$dir" ] || continue
+  SLUG="$(basename "$dir")"
+  BRANCH="agent/$SLUG"
+
+  COMMITS_AHEAD=$(git -C "$dir" rev-list --count "$MAIN_BRANCH..HEAD" 2>/dev/null || echo "0")
+  if [ "$COMMITS_AHEAD" -gt 0 ]; then
+    echo "==> Pushing branch $BRANCH to origin..."
+    git -C "$dir" push origin "$BRANCH" --force-with-lease
+
+    if command -v gh &>/dev/null; then
+      echo "==> Opening Draft PR for $BRANCH..."
+      (cd "$dir" && gh pr create --fill --draft) || true
+    else
+      echo "==> Notice: gh CLI not installed. Skipping PR generation."
+    fi
+  else
+    echo "==> Skipping $SLUG (0 commits ahead of $MAIN_BRANCH)."
+  fi
+done
+
+echo ""
+echo "All tasks pushed. Review PRs, then run 'claude-fleet-clean' when finished."

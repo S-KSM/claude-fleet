@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# claude-fleet: Spin up parallel Claude Code instances using Git worktrees and tmux
+set -e
+
+if [ "$#" -lt 1 ]; then
+  echo "Usage: claude-fleet \"<task 1>\" [\"task 2\" ...]"
+  echo "Example: claude-fleet \"auth modal\" \"photo feed\" \"fix-cors\""
+  exit 1
+fi
+
+SESSION_NAME="claude-fleet"
+BASE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "Error: Must be run inside a Git repository."
+  exit 1
+}
+
+WORKTREE_ROOT="$BASE_DIR/.worktrees"
+GITIGNORE_FILE="$BASE_DIR/.gitignore"
+
+slugify() {
+  echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-_'
+}
+
+# Ensure .worktrees/ is ignored in root repo
+[ ! -f "$GITIGNORE_FILE" ] && touch "$GITIGNORE_FILE"
+if ! grep -qxF ".worktrees/" "$GITIGNORE_FILE"; then
+  echo "" >> "$GITIGNORE_FILE"
+  echo "# Claude Code fleet worktrees" >> "$GITIGNORE_FILE"
+  echo ".worktrees/" >> "$GITIGNORE_FILE"
+  echo "[fleet] Added .worktrees/ to .gitignore"
+fi
+
+mkdir -p "$WORKTREE_ROOT"
+
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+  echo "Error: tmux session '$SESSION_NAME' already exists. Attach with 'tmux attach -t $SESSION_NAME' or run claude-fleet-clean first."
+  exit 1
+fi
+
+FIRST=true
+while [ "$#" -gt 0 ]; do
+  TASK_RAW="$1"
+  TASK="$(slugify "$TASK_RAW")"
+  if [ -z "$TASK" ]; then
+    echo "Error: task \"$TASK_RAW\" produced an empty slug. Skipping."
+    shift
+    continue
+  fi
+  TREE_DIR="$WORKTREE_ROOT/$TASK"
+
+  if [ ! -d "$TREE_DIR" ]; then
+    git worktree add "$TREE_DIR" -b "agent/$TASK"
+    [ -f "$BASE_DIR/.env" ] && cp "$BASE_DIR/.env" "$TREE_DIR/.env"
+  fi
+
+  if [ "$FIRST" = true ]; then
+    tmux new-session -d -s "$SESSION_NAME" -c "$TREE_DIR"
+    FIRST=false
+  else
+    tmux split-window -t "$SESSION_NAME" -c "$TREE_DIR"
+  fi
+  tmux send-keys -t "$SESSION_NAME" "claude" C-m
+  shift
+done
+
+if [ "$FIRST" = true ]; then
+  echo "Error: no valid tasks to launch."
+  exit 1
+fi
+
+tmux select-layout -t "$SESSION_NAME" tiled
+tmux attach-session -t "$SESSION_NAME"

@@ -1,0 +1,3 @@
+auth-modal  | Refactor AuthModal to use JWT refresh tokens and add Vitest unit tests.
+photo-feed  | Optimize image lazy-loading on the feed and resolve cumulative layout shifts.
+api-metrics | Add Prometheus gauge counters to the /api/health route.

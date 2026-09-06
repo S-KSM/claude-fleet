@@ -1,0 +1,16 @@
+# CLAUDE.md - Fleet Agent Protocol
+
+## Build & Test Commands
+- Run dev server: `npm run dev`
+- Run test suite: `npm test`
+- Single test: `npm test -- <path/to/test>`
+- Type check: `npx tsc --noEmit`
+- Linter: `npm run lint`
+
+## Autonomous Fleet Task Protocol
+Before reporting a task as complete:
+1. Verify you are on an `agent/*` branch using `git branch --show-current`. Never edit `main` directly.
+2. Run the test suite and type checker. Do not finish if any checks fail.
+3. Review your pending diff with `git status` to make sure no scratch files or credentials remain.
+4. Commit your changes using conventional commit formatting (`feat: ...`, `fix: ...`, `refactor: ...`).
+5. Summarize what changed, which files were touched, and confirm all test results passed.
