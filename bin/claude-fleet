@@ -8,50 +8,31 @@ if [ "$#" -lt 1 ]; then
   exit 1
 fi
 
-SESSION_NAME="claude-fleet"
-BASE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || {
-  echo "Error: Must be run inside a Git repository."
-  exit 1
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=claude-fleet-common.sh
+source "$SCRIPT_DIR/claude-fleet-common.sh"
 
-WORKTREE_ROOT="$BASE_DIR/.worktrees"
-GITIGNORE_FILE="$BASE_DIR/.gitignore"
-
-slugify() {
-  echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-_'
-}
-
-# Ensure .worktrees/ is ignored in root repo
-[ ! -f "$GITIGNORE_FILE" ] && touch "$GITIGNORE_FILE"
-if ! grep -qxF ".worktrees/" "$GITIGNORE_FILE"; then
-  echo "" >> "$GITIGNORE_FILE"
-  echo "# Claude Code fleet worktrees" >> "$GITIGNORE_FILE"
-  echo ".worktrees/" >> "$GITIGNORE_FILE"
-  echo "[fleet] Added .worktrees/ to .gitignore"
-fi
-
+require_repo
+require_no_session
 mkdir -p "$WORKTREE_ROOT"
-
-if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-  echo "Error: tmux session '$SESSION_NAME' already exists. Attach with 'tmux attach -t $SESSION_NAME' or run claude-fleet-clean first."
-  exit 1
-fi
+ensure_gitignore
 
 FIRST=true
 while [ "$#" -gt 0 ]; do
   TASK_RAW="$1"
   TASK="$(slugify "$TASK_RAW")"
   if [ -z "$TASK" ]; then
-    echo "Error: task \"$TASK_RAW\" produced an empty slug. Skipping."
+    echo "Error: task \"$TASK_RAW\" produced an empty slug. Skipping." >&2
     shift
     continue
   fi
   TREE_DIR="$WORKTREE_ROOT/$TASK"
 
-  if [ ! -d "$TREE_DIR" ]; then
-    git worktree add "$TREE_DIR" -b "agent/$TASK"
-    [ -f "$BASE_DIR/.env" ] && cp "$BASE_DIR/.env" "$TREE_DIR/.env"
+  if ! ensure_worktree "$TREE_DIR" "agent/$TASK"; then
+    shift
+    continue
   fi
+  [ -f "$BASE_DIR/.env" ] && cp "$BASE_DIR/.env" "$TREE_DIR/.env"
 
   if [ "$FIRST" = true ]; then
     tmux new-session -d -s "$SESSION_NAME" -c "$TREE_DIR"
@@ -64,7 +45,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ "$FIRST" = true ]; then
-  echo "Error: no valid tasks to launch."
+  echo "Error: no valid tasks to launch." >&2
   exit 1
 fi
 

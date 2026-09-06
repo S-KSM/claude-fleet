@@ -2,12 +2,11 @@
 # claude-fleet-status: Inspect branch commits, dirtiness, and diffs across worktrees
 set -e
 
-BASE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || {
-  echo "Error: Must be run inside a Git repository."
-  exit 1
-}
-MAIN_BRANCH="${CLAUDE_FLEET_MAIN_BRANCH:-main}"
-WORKTREE_ROOT="$BASE_DIR/.worktrees"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=claude-fleet-common.sh
+source "$SCRIPT_DIR/claude-fleet-common.sh"
+
+require_repo
 
 if [ ! -d "$WORKTREE_ROOT" ]; then
   echo "No active .worktrees directory found."

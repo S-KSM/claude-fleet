@@ -2,13 +2,11 @@
 # claude-fleet-clean: Terminate tmux session and tear down worktree checkouts
 set -e
 
-BASE_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || {
-  echo "Error: Must be run inside a Git repository."
-  exit 1
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=claude-fleet-common.sh
+source "$SCRIPT_DIR/claude-fleet-common.sh"
 
-SESSION_NAME="claude-fleet"
-WORKTREE_ROOT="$BASE_DIR/.worktrees"
+require_repo
 
 echo "Active Worktrees:"
 git worktree list

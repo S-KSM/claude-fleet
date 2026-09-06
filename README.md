@@ -34,6 +34,7 @@ A Git worktree allows you to check out multiple branches simultaneously from the
 claude-fleet/
 ├── README.md                     # Architecture, philosophy, and operational guide
 ├── bin/
+│   ├── claude-fleet-common.sh    # Shared helpers sourced by every script below
 │   ├── claude-fleet              # Ad-hoc multi-pane launcher (CLI arguments)
 │   ├── claude-fleet-start        # Automated batch launcher (tasks.txt + dependency bootstrap)
 │   ├── claude-fleet-status       # Cross-agent dashboard (diffs, dirty state, ahead/behind)
