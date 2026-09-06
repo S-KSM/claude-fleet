@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# claude-fleet-brain-tasks: Generate a claude-fleet tasks file from
+# team-brain plan phases whose frontmatter status is "ready-to-ship".
+#
+# Optional path: only works when TEAM_BRAIN_DIR is configured via
+# .claude-fleet.conf (see examples/.claude-fleet.conf.example). Does not
+# touch tasks.txt or the default claude-fleet-start flow — feed the
+# generated file to claude-fleet-start explicitly:
+#
+#   claude-fleet-brain-tasks
+#   claude-fleet-start tasks.brain.txt
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=claude-fleet-common.sh
+source "$SCRIPT_DIR/claude-fleet-common.sh"
+
+require_repo
+load_fleet_config
+
+if ! team_brain_enabled; then
+  echo "Error: TEAM_BRAIN_DIR not set or has no plans/ directory." >&2
+  echo "Copy examples/.claude-fleet.conf.example to .claude-fleet.conf and set TEAM_BRAIN_DIR." >&2
+  exit 1
+fi
+
+mkdir -p "$WORKTREE_ROOT"
+MAP_FILE="$(brain_map_file)"
+OUT_FILE="${1:-$BASE_DIR/tasks.brain.txt}"
+
+: > "$MAP_FILE"
+: > "$OUT_FILE"
+
+while IFS= read -r -d '' plan; do
+  grep -qE '^status:[[:space:]]*ready-to-ship[[:space:]]*$' "$plan" || continue
+
+  REL="${plan#"$TEAM_BRAIN_DIR"/plans/}"
+  REL="${REL%.md}"
+  SLUG="$(slugify "${REL//\//-}")"
+
+  printf '%s\t%s\n' "$SLUG" "$plan" >> "$MAP_FILE"
+  echo "$SLUG | /implement $plan" >> "$OUT_FILE"
+done < <(find "$TEAM_BRAIN_DIR/plans" -name '*.md' -print0)
+
+COUNT=$(wc -l < "$OUT_FILE" | tr -d ' ')
+if [ "$COUNT" -eq 0 ]; then
+  echo "No ready-to-ship plans found under $TEAM_BRAIN_DIR/plans." >&2
+  exit 1
+fi
+
+echo "==> Wrote $COUNT ready-to-ship task(s) to $OUT_FILE"
+echo "==> Run: claude-fleet-start $OUT_FILE"

@@ -1,0 +1,24 @@
+# CLAUDE.md - Fleet Agent Protocol (Team-Brain Mode)
+
+Use this instead of `CLAUDE.md.example` when tasks came from
+`claude-fleet-brain-tasks` (prompts of the form `/implement plans/<namespace>/<feature>/<phase>.md`).
+
+## Build & Test Commands
+- Run dev server: `npm run dev`
+- Run test suite: `npm test`
+- Single test: `npm test -- <path/to/test>`
+- Type check: `npx tsc --noEmit`
+- Linter: `npm run lint`
+
+## Autonomous Fleet Task Protocol
+1. Verify you are on an `agent/*` branch using `git branch --show-current`. Never edit `main` directly.
+2. Your prompt names a team-brain plan file — run `/implement <that path>`. It checks open questions, locks the plan, implements the scoped work, and runs `/simplify` for you.
+3. Let `/implement` own the plan's frontmatter. Don't hand-edit its `status` field.
+4. Run the test suite and type checker before finishing. Do not finish if any checks fail.
+5. Commit using conventional commit formatting (`feat: ...`, `fix: ...`, `refactor: ...`).
+6. Summarize what changed and report the plan phase status `/implement` left behind.
+
+## After `claude-fleet-ship`
+Once your branch is pushed and a draft PR opens, `claude-fleet-ship` patches
+this phase's plan frontmatter itself (`status: pr-open`, `related_pr: <PR#>`).
+You don't need to touch the plan file for that step.

@@ -112,6 +112,44 @@ Pushes all agent branches that contain commits ahead of `main` and creates draft
 
 Safely kills the fleet `tmux` session, removes worktree directories, and prunes the Git pointer table. See [`bin/claude-fleet-clean`](bin/claude-fleet-clean).
 
+### 6. `bin/claude-fleet-brain-tasks` (Optional: Team-Brain Task Generator)
+
+Generates a tasks file from a [team-brain](https://github.com/zoraxl/team-brain) checkout's `ready-to-ship` plan phases. Inert unless configured. See [`bin/claude-fleet-brain-tasks`](bin/claude-fleet-brain-tasks).
+
+---
+
+## Optional: Team-Brain Integration
+
+Fleet is a parallel *execution* layer: many isolated worktrees running at once. [team-brain](https://github.com/zoraxl/team-brain) is a *knowledge and lifecycle* layer: plans move through stages (`brainstorm → planned → ready-to-ship → implemented-pending-pr → pr-open → implemented-and-synced → archived`) and a wiki holds only decided, implemented knowledge.
+
+This integration is entirely opt-in — nothing below runs unless you configure it, and the default `tasks.txt` workflow is untouched.
+
+### Setup
+
+```bash
+cp examples/.claude-fleet.conf.example .claude-fleet.conf
+# edit .claude-fleet.conf: set TEAM_BRAIN_DIR to your team-brain checkout
+```
+
+Optionally, use the team-brain-flavored agent protocol instead of the default one:
+
+```bash
+cp examples/CLAUDE.md.team-brain.example CLAUDE.md
+```
+
+### Workflow
+
+```bash
+claude-fleet-brain-tasks          # scan $TEAM_BRAIN_DIR/plans for status: ready-to-ship,
+                                   # write tasks.brain.txt (prompt: /implement <plan path>)
+claude-fleet-start tasks.brain.txt
+# ...agents run /implement on their assigned phase, as normal...
+claude-fleet-ship                 # pushes branches, opens draft PRs, AND patches each
+                                   # synced plan's frontmatter: status: pr-open, related_pr: <PR#>
+```
+
+`claude-fleet-brain-tasks` never modifies `tasks.txt` or team-brain's wiki — it only reads plan frontmatter and writes a separate `tasks.brain.txt` plus an internal slug-to-plan map (`.worktrees/.brain-map`) that `claude-fleet-ship` uses to route PR numbers back to the right plan file. team-brain's own `/wiki-sync` skill still owns closing the loop post-merge (creating/flipping ADRs, updating wiki pages, archiving the plan).
+
 ---
 
 ## Integrating with Claude Code (`CLAUDE.md`)

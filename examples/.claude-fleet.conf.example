@@ -1,0 +1,11 @@
+# claude-fleet optional configuration.
+#
+# Copy to .claude-fleet.conf in your project root to opt in to team-brain
+# integration (https://github.com/zoraxl/team-brain). Leave it absent for
+# the default fleet workflow — nothing below is required or auto-detected.
+#
+# Sourced as a shell snippet by every claude-fleet-* script, after
+# require_repo runs. Keep it to simple variable assignments.
+
+# Path to a team-brain checkout: absolute, or relative to this repo's root.
+TEAM_BRAIN_DIR="../team-brain"

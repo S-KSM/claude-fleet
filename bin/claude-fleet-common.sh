@@ -71,3 +71,64 @@ install_cmd_for() {
     echo "pip install -r requirements.txt"
   fi
 }
+
+# --- Optional team-brain integration -----------------------------------
+# Everything below is inert unless a project opts in via .claude-fleet.conf
+# (see examples/.claude-fleet.conf.example). Default fleet usage is unaffected.
+
+# load_fleet_config: source ./.claude-fleet.conf (repo root) if present.
+# Must be called after require_repo, since it relies on BASE_DIR.
+load_fleet_config() {
+  local conf_file="$BASE_DIR/.claude-fleet.conf"
+  # shellcheck disable=SC1090
+  [ -f "$conf_file" ] && source "$conf_file"
+  TEAM_BRAIN_DIR="${CLAUDE_FLEET_TEAM_BRAIN_DIR:-$TEAM_BRAIN_DIR}"
+}
+
+# team_brain_enabled: true if TEAM_BRAIN_DIR is configured and looks like
+# a team-brain checkout.
+team_brain_enabled() {
+  [ -n "$TEAM_BRAIN_DIR" ] && [ -d "$TEAM_BRAIN_DIR/plans" ]
+}
+
+# brain_map_file: path to the slug -> plan-file map written by
+# claude-fleet-brain-tasks and read back by claude-fleet-ship.
+brain_map_file() {
+  echo "$WORKTREE_ROOT/.brain-map"
+}
+
+# sync_plan_pr <slug> <pr_url>
+# Best-effort: flips a synced plan's status to pr-open and records
+# related_pr. Matches ready-to-ship (never implemented) as well as
+# implemented-pending-pr (the normal case — /implement already advanced
+# the plan past ready-to-ship by the time claude-fleet-ship runs). Never
+# fatal — a missing map entry or plan file is silently skipped so this
+# can't break claude-fleet-ship.
+sync_plan_pr() {
+  local slug="$1" pr_url="$2"
+  team_brain_enabled || return 0
+  local map_file; map_file="$(brain_map_file)"
+  [ -f "$map_file" ] || return 0
+
+  local plan
+  plan="$(awk -F'\t' -v s="$slug" '$1==s{print $2; exit}' "$map_file")"
+  [ -n "$plan" ] && [ -f "$plan" ] || return 0
+
+  local pr_number="${pr_url##*/}"
+  local has_related=0
+  grep -q '^related_pr:' "$plan" && has_related=1
+
+  local tmp; tmp="$(mktemp)"
+  awk -v pr="$pr_number" -v has_related="$has_related" '
+    /^status:[ \t]*(ready-to-ship|implemented-pending-pr)[ \t]*$/ {
+      print "status: pr-open"
+      if (has_related == 0) print "related_pr: " pr
+      next
+    }
+    /^related_pr:/ { print "related_pr: " pr; next }
+    { print }
+  ' "$plan" > "$tmp"
+  mv "$tmp" "$plan"
+
+  echo "==> team-brain: synced $plan (status: pr-open, related_pr: $pr_number)"
+}
