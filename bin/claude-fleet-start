@@ -59,10 +59,14 @@ while IFS="|" read -r RAW_SLUG PROMPT || [ -n "$RAW_SLUG" ]; do
   # blocking this provisioning loop one worktree at a time.
   INSTALL_CMD=""
   [ "$IS_NEW" = true ] && INSTALL_CMD="$(install_cmd_for "$TREE_DIR")"
+  # Qualify with the repo basename so two projects with the same task slug
+  # (e.g. "auth-modal") don't collide onto one Dispatch workstream card.
+  REPO="$(basename "$BASE_DIR")"
+  export_ws="export DISPATCH_WORKSTREAM=$REPO-$SLUG;"
   if [ -n "$INSTALL_CMD" ]; then
-    tmux send-keys -t "$SESSION_NAME" "$INSTALL_CMD && claude" C-m
+    tmux send-keys -t "$SESSION_NAME" "$export_ws $INSTALL_CMD && claude" C-m
   else
-    tmux send-keys -t "$SESSION_NAME" "claude" C-m
+    tmux send-keys -t "$SESSION_NAME" "$export_ws claude" C-m
   fi
   if [ -n "$PROMPT" ]; then
     tmux send-keys -t "$SESSION_NAME" "$PROMPT" C-m

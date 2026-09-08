@@ -120,7 +120,7 @@ sync_plan_pr() {
 
   local tmp; tmp="$(mktemp)"
   awk -v pr="$pr_number" -v has_related="$has_related" '
-    /^status:[ \t]*(ready-to-ship|implemented-pending-pr)[ \t]*$/ {
+    /^status:[ \t]*(ready to ship|implemented-pending-pr)[ \t]*$/ {
       print "status: pr-open"
       if (has_related == 0) print "related_pr: " pr
       next
