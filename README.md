@@ -39,10 +39,13 @@ claude-fleet/
 │   ├── claude-fleet-start        # Automated batch launcher (tasks.txt + dependency bootstrap)
 │   ├── claude-fleet-status       # Cross-agent dashboard (diffs, dirty state, ahead/behind)
 │   ├── claude-fleet-ship         # PR dispatcher (pushes branches, creates GitHub draft PRs)
-│   └── claude-fleet-clean        # Teardown script (kills tmux, purges .worktrees/)
+│   ├── claude-fleet-clean        # Teardown script (kills tmux, purges .worktrees/)
+│   ├── claude-fleet-brain-tasks  # Optional: team-brain "ready to ship" → tasks.brain.txt
+│   └── claude-fleet-install-dispatch  # Optional: wire up team-brain + Dispatch in one pass
 └── examples/
     ├── tasks.txt.example         # Sample task definition file
-    └── CLAUDE.md.example         # Agent completion protocol and guidelines
+    ├── CLAUDE.md.example         # Agent completion protocol and guidelines
+    └── .claude-fleet.conf.example  # Optional team-brain integration config
 ```
 
 When active inside any target project (e.g., `baby_journey`), the directory structure organizes cleanly:
@@ -114,13 +117,17 @@ Safely kills the fleet `tmux` session, removes worktree directories, and prunes 
 
 ### 6. `bin/claude-fleet-brain-tasks` (Optional: Team-Brain Task Generator)
 
-Generates a tasks file from a [team-brain](https://github.com/zoraxl/team-brain) checkout's `ready-to-ship` plan phases. Inert unless configured. See [`bin/claude-fleet-brain-tasks`](bin/claude-fleet-brain-tasks).
+Generates a tasks file from a [team-brain](https://github.com/zoraxl/team-brain) checkout's `ready to ship` plan phases. Inert unless configured. See [`bin/claude-fleet-brain-tasks`](bin/claude-fleet-brain-tasks).
+
+### 7. `bin/claude-fleet-install-dispatch` (Optional: Team-Brain + Dispatch Setup)
+
+One-pass installer that wires this repo's fleet setup together with a [team-brain](https://github.com/zoraxl/team-brain) checkout and a [Dispatch](https://github.com/S-KSM/Manager) checkout: writes `.claude-fleet.conf`, runs Dispatch's `hooks/install.sh`, and drops in `WORKFLOW.fleet.md`. See [`bin/claude-fleet-install-dispatch`](bin/claude-fleet-install-dispatch) — it does not build or install the Dispatch app itself, only the glue between the three.
 
 ---
 
 ## Optional: Team-Brain Integration
 
-Fleet is a parallel *execution* layer: many isolated worktrees running at once. [team-brain](https://github.com/zoraxl/team-brain) is a *knowledge and lifecycle* layer: plans move through stages (`brainstorm → planned → ready-to-ship → implemented-pending-pr → pr-open → implemented-and-synced → archived`) and a wiki holds only decided, implemented knowledge.
+Fleet is a parallel *execution* layer: many isolated worktrees running at once. [team-brain](https://github.com/zoraxl/team-brain) is a *knowledge and lifecycle* layer: plans move through stages (`brainstorm → planned → ready to ship → implemented-pending-pr → pr-open → implemented-and-synced → archived`) and a wiki holds only decided, implemented knowledge.
 
 This integration is entirely opt-in — nothing below runs unless you configure it, and the default `tasks.txt` workflow is untouched.
 
@@ -140,7 +147,7 @@ cp examples/CLAUDE.md.team-brain.example CLAUDE.md
 ### Workflow
 
 ```bash
-claude-fleet-brain-tasks          # scan $TEAM_BRAIN_DIR/plans for status: ready-to-ship,
+claude-fleet-brain-tasks          # scan $TEAM_BRAIN_DIR/plans for status: ready to ship,
                                    # write tasks.brain.txt (prompt: /implement <plan path>)
 claude-fleet-start tasks.brain.txt
 # ...agents run /implement on their assigned phase, as normal...
@@ -149,6 +156,10 @@ claude-fleet-ship                 # pushes branches, opens draft PRs, AND patche
 ```
 
 `claude-fleet-brain-tasks` never modifies `tasks.txt` or team-brain's wiki — it only reads plan frontmatter and writes a separate `tasks.brain.txt` plus an internal slug-to-plan map (`.worktrees/.brain-map`) that `claude-fleet-ship` uses to route PR numbers back to the right plan file. team-brain's own `/wiki-sync` skill still owns closing the loop post-merge (creating/flipping ADRs, updating wiki pages, archiving the plan).
+
+### Alternative: continuous dispatch instead of a daily batch
+
+The above is the batch flow: a human runs `claude-fleet-brain-tasks` + `claude-fleet-start` once and walks away. If you'd rather have a daemon continuously claim `ready to ship` plans as they appear — no morning batch step — [Dispatch](https://github.com/S-KSM/Manager)'s orchestrator can drive the same worktrees directly via a `team-brain` tracker (`WORKFLOW.md` `tracker.kind: team-brain`), with `claude-fleet-status`/`-ship`/`-clean` unchanged. Run `claude-fleet-install-dispatch` once to wire it up (writes `.claude-fleet.conf`, installs Dispatch's hooks, drops in `WORKFLOW.fleet.md`), then `dispatch start --workflow ./WORKFLOW.fleet.md` instead of `claude-fleet-start`. Don't run both dispatchers against the same repo — see `WORKFLOW.fleet.md`'s header comment for why.
 
 ---
 

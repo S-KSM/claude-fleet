@@ -40,7 +40,8 @@ while [ "$#" -gt 0 ]; do
   else
     tmux split-window -t "$SESSION_NAME" -c "$TREE_DIR"
   fi
-  tmux send-keys -t "$SESSION_NAME" "claude" C-m
+  REPO="$(basename "$BASE_DIR")"
+  tmux send-keys -t "$SESSION_NAME" "export DISPATCH_WORKSTREAM=$REPO-$TASK; claude" C-m
   shift
 done
 

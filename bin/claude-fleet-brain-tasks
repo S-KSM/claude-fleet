@@ -32,7 +32,7 @@ OUT_FILE="${1:-$BASE_DIR/tasks.brain.txt}"
 : > "$OUT_FILE"
 
 while IFS= read -r -d '' plan; do
-  grep -qE '^status:[[:space:]]*ready-to-ship[[:space:]]*$' "$plan" || continue
+  grep -qE '^status:[[:space:]]*ready to ship[[:space:]]*$' "$plan" || continue
 
   REL="${plan#"$TEAM_BRAIN_DIR"/plans/}"
   REL="${REL%.md}"

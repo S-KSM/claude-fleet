@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# claude-fleet-install-dispatch: wire this repo's claude-fleet setup together
+# with a team-brain checkout and a Dispatch checkout in one pass.
+#
+# What it does:
+#   1. Resolves the team-brain and Dispatch checkout paths (flags, or an
+#      existing .claude-fleet.conf, or common sibling-directory guesses).
+#   2. Writes/updates .claude-fleet.conf in this repo with TEAM_BRAIN_DIR set
+#      (see examples/.claude-fleet.conf.example) — the same file
+#      claude-fleet-brain-tasks / claude-fleet-ship already read.
+#   3. Runs Dispatch's own hooks/install.sh (interactive, idempotent — it
+#      merges lifecycle hooks into ~/.claude/settings.json and asks for
+#      confirmation itself; this script does not bypass that prompt).
+#   4. Copies Dispatch's examples/WORKFLOW.fleet.md into this repo, unless a
+#      copy already exists here (never clobbers your edits).
+#
+# What it deliberately does NOT do:
+#   - Build or install the Dispatch macOS app / daemon (that's Dispatch's own
+#     bin/install.sh — a separate, heavier step with its own confirmations).
+#   - Export DISPATCH_TEAM_BRAIN_DIR into your shell profile. That var is
+#     read by the Dispatch daemon process at `dispatch start`, not by
+#     anything in this repo, so silently editing your ~/.zshrc or ~/.bashrc
+#     for a daemon you may run on a different machine/shell is out of scope.
+#     This script prints the line to add; you decide where it goes.
+#
+# Usage:
+#   claude-fleet-install-dispatch [--team-brain <path>] [--dispatch <path>]
+#                                  [--skip-hooks] [--skip-workflow]
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=claude-fleet-common.sh
+source "$SCRIPT_DIR/claude-fleet-common.sh"
+
+require_repo
+load_fleet_config
+
+TEAM_BRAIN_ARG=""
+DISPATCH_ARG=""
+SKIP_HOOKS=false
+SKIP_WORKFLOW=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --team-brain) TEAM_BRAIN_ARG="$2"; shift 2 ;;
+    --dispatch) DISPATCH_ARG="$2"; shift 2 ;;
+    --skip-hooks) SKIP_HOOKS=true; shift ;;
+    --skip-workflow) SKIP_WORKFLOW=true; shift ;;
+    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+# --- Resolve team-brain checkout --------------------------------------------
+
+resolve_team_brain() {
+  local candidate
+  if [ -n "$TEAM_BRAIN_ARG" ]; then
+    candidate="$(cd "$TEAM_BRAIN_ARG" 2>/dev/null && pwd)" || {
+      echo "Error: --team-brain path '$TEAM_BRAIN_ARG' does not exist." >&2
+      exit 1
+    }
+  elif [ -n "$TEAM_BRAIN_DIR" ] && [ -d "$TEAM_BRAIN_DIR/plans" ]; then
+    candidate="$TEAM_BRAIN_DIR"
+  elif [ -d "$BASE_DIR/../team-brain/plans" ]; then
+    candidate="$(cd "$BASE_DIR/../team-brain" && pwd)"
+  else
+    echo "Error: could not find a team-brain checkout." >&2
+    echo "Pass one explicitly: claude-fleet-install-dispatch --team-brain /path/to/team-brain" >&2
+    exit 1
+  fi
+  if [ ! -d "$candidate/plans" ]; then
+    echo "Error: '$candidate' doesn't look like a team-brain checkout (no plans/ dir)." >&2
+    exit 1
+  fi
+  echo "$candidate"
+}
+
+# --- Resolve Dispatch (Manager) checkout ------------------------------------
+
+resolve_dispatch() {
+  local candidate name
+  if [ -n "$DISPATCH_ARG" ]; then
+    candidate="$(cd "$DISPATCH_ARG" 2>/dev/null && pwd)" || {
+      echo "Error: --dispatch path '$DISPATCH_ARG' does not exist." >&2
+      exit 1
+    }
+  else
+    for name in Manager dispatch Dispatch; do
+      if [ -f "$BASE_DIR/../$name/hooks/install.sh" ]; then
+        candidate="$(cd "$BASE_DIR/../$name" && pwd)"
+        break
+      fi
+    done
+  fi
+  if [ -z "$candidate" ] || [ ! -f "$candidate/hooks/install.sh" ]; then
+    echo "Error: could not find a Dispatch checkout (looked for ../Manager, ../dispatch, ../Dispatch)." >&2
+    echo "Pass one explicitly: claude-fleet-install-dispatch --dispatch /path/to/Manager" >&2
+    exit 1
+  fi
+  echo "$candidate"
+}
+
+TEAM_BRAIN_RESOLVED="$(resolve_team_brain)"
+DISPATCH_RESOLVED="$(resolve_dispatch)"
+echo "==> team-brain: $TEAM_BRAIN_RESOLVED"
+echo "==> Dispatch:   $DISPATCH_RESOLVED"
+
+# --- 1. .claude-fleet.conf ---------------------------------------------------
+
+CONF_FILE="$BASE_DIR/.claude-fleet.conf"
+if [ -f "$CONF_FILE" ] && grep -q '^TEAM_BRAIN_DIR=' "$CONF_FILE"; then
+  TMP="$(mktemp)"
+  awk -v dir="$TEAM_BRAIN_RESOLVED" \
+    '/^TEAM_BRAIN_DIR=/ { print "TEAM_BRAIN_DIR=\"" dir "\""; next } { print }' \
+    "$CONF_FILE" > "$TMP"
+  mv "$TMP" "$CONF_FILE"
+  echo "==> Updated TEAM_BRAIN_DIR in $CONF_FILE"
+else
+  {
+    echo "# Written by claude-fleet-install-dispatch. See examples/.claude-fleet.conf.example."
+    echo "TEAM_BRAIN_DIR=\"$TEAM_BRAIN_RESOLVED\""
+  } >> "$CONF_FILE"
+  echo "==> Wrote TEAM_BRAIN_DIR to $CONF_FILE"
+fi
+
+# --- 2. Dispatch lifecycle hooks ---------------------------------------------
+
+if [ "$SKIP_HOOKS" = true ]; then
+  echo "==> Skipping hooks/install.sh (--skip-hooks)"
+elif [ ! -x "$DISPATCH_RESOLVED/hooks/install.sh" ] && [ ! -f "$DISPATCH_RESOLVED/hooks/install.sh" ]; then
+  echo "==> Warning: $DISPATCH_RESOLVED/hooks/install.sh not found; skipping." >&2
+else
+  echo "==> Running Dispatch's hooks/install.sh (it will ask for confirmation itself)..."
+  bash "$DISPATCH_RESOLVED/hooks/install.sh" || echo "==> Warning: hooks/install.sh exited non-zero; continuing." >&2
+fi
+
+# --- 3. WORKFLOW.fleet.md ----------------------------------------------------
+
+WORKFLOW_SRC="$DISPATCH_RESOLVED/examples/WORKFLOW.fleet.md"
+WORKFLOW_DST="$BASE_DIR/WORKFLOW.fleet.md"
+if [ "$SKIP_WORKFLOW" = true ]; then
+  echo "==> Skipping WORKFLOW.fleet.md copy (--skip-workflow)"
+elif [ -f "$WORKFLOW_DST" ]; then
+  echo "==> $WORKFLOW_DST already exists — leaving your copy alone."
+elif [ -f "$WORKFLOW_SRC" ]; then
+  cp "$WORKFLOW_SRC" "$WORKFLOW_DST"
+  echo "==> Copied WORKFLOW.fleet.md to $WORKFLOW_DST — edit tracker.source / workspace.root before use."
+else
+  echo "==> Warning: $WORKFLOW_SRC not found; skipping." >&2
+fi
+
+# --- Done ---------------------------------------------------------------------
+
+echo ""
+echo "==> Done. Remaining manual step — export this wherever the Dispatch daemon runs:"
+echo ""
+echo "    export DISPATCH_TEAM_BRAIN_DIR=\"$TEAM_BRAIN_RESOLVED\""
+echo ""
+echo "Then, from $BASE_DIR:"
+echo "    dispatch start --workflow ./WORKFLOW.fleet.md"
+echo ""
+echo "claude-fleet-status / claude-fleet-ship / claude-fleet-clean keep working unchanged"
+echo "against whatever worktrees that creates."
